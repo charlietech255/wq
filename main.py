@@ -1,122 +1,143 @@
+turn this backend to use open Ai model which friendly for 0$ budgeted project
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import requests
-import os
-import re
+import os, requests, re
 
 app = FastAPI(title="Raw Advisor Backend")
 
+Allow all origins
+
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+CORSMiddleware,
+allow_origins=[""],
+allow_methods=[""],
+allow_headers=["*"],
 )
+
+HF_API_TOKEN = os.getenv("HF_API_TOKEN")
+if not HF_API_TOKEN:
+raise RuntimeError("HF_API_TOKEN not set in environment variables")
+
+RESPONSES_URL = "https://router.huggingface.co/v1/responses"
+
+HEADERS = {
+"Authorization": f"Bearer {HF_API_TOKEN}",
+"Content-Type": "application/json"
+}
 
 ASSISTANT_NAME = "Raw Advisor"
 DEVELOPER_NAME = "Charlie Syllas"
 
 IDENTITY_PATTERN = re.compile(
-    r"(who are you|who made you|who created you|who built you|what are you)",
-    re.IGNORECASE
+r"^(who (are|made|created|built|trained) you|where are you from|what are you)$",
+re.IGNORECASE
 )
 
-# Get API key from environment (same way Render and other platforms expect)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY environment variable is not set")
-
 class GenerateRequest(BaseModel):
-    prompt: str
+prompt: str
 
 @app.post("/generate")
 def generate(req: GenerateRequest):
-    prompt = req.prompt.strip()
+prompt = req.prompt.strip()
 
-    # Identity questions (handled locally, no API call)
-    if IDENTITY_PATTERN.search(prompt):
-        return {
-            "output": (
-                "👋 **Karibu!**\n\n"
-                "Mimi ni **Raw Advisor**, mshauri wa masuala ya **sheria, Katiba na wajibu wa raia wa Tanzania 🇹🇿**.\n\n"
-                "Nimetengenezwa na **Charlie Syllas** kwa lengo la kuwasaidia wananchi kuelewa haki zao, "
-                "wajibu wao na taratibu za kisheria kwa lugha rahisi na ya kueleweka 🙂⚖️"
-            )
-        }
+# First open introduction  
+if IDENTITY_PATTERN.search(prompt):  
+    return {  
+        "output": (  
+            "👋 **Karibu!**\n\n"  
+            "Mimi ni **Raw Advisor**, mshauri wa masuala ya sheria, Katiba na wajibu wa raia wa Tanzania 🇹🇿. "  
+            "Nimeundwa na **Charlie Syllas** kusaidia wananchi kuelewa haki zao, wajibu wao, "  
+            "na kutoa ushauri wa kisheria kwa lugha rahisi na ya kueleweka."  
+        )  
+    }  
 
-    system_prompt = f"""
-You are {ASSISTANT_NAME}, a highly trained Tanzanian legal advisor.
+system_prompt = f"""
 
-CORE ROLE:
-- You ONLY handle Tanzanian law, constitution, rights, civic duties, courts, legal procedures
-- You are professional, calm, respectful, and human
+You are {ASSISTANT_NAME}, a professional Tanzanian legal advisor.
 
-LANGUAGE RULES:
-- Automatically detect user's language
-- Respond in the SAME language (English or Kiswahili)
-- Kiswahili should be simple, friendly, sometimes maneno ya mtaa
-- NEVER force-translate complex English legal words into Kiswahili
-- If a legal word is better known in English, KEEP IT IN ENGLISH and explain it simply in brackets ()
-  Example: "Judicial Review (uhakiki wa maamuzi ya serikali na mahakama)"
+GOALS:
 
-UNDERSTANDING RULE (VERY IMPORTANT):
-- FIRST ensure you understand EVERY important word in the user’s question
-- If there is ANY word you do not clearly understand:
-  - DO NOT answer the question
-  - Politely ask the user to rephrase
-  - Clearly mention the word you failed to understand
-  - Ask them to explain it better
-- Never guess meanings
-- Never hallucinate definitions
+Answer all questions about Tanzanian law, rights, responsibilities, constitution, civic duties
 
-STYLE & OUTPUT:
-- Use headings, bullet points, short paragraphs
-- Use light emojis only when appropriate (⚖️📌🙂)
-- Explain processes step-by-step when needed
-- Use tables ONLY if helpful
-- Respond ONLY to what the user asked
-- Never suggest follow-up questions
-- Never mention OpenAI, APIs, or AI models
+Provide professional advice if needed
 
-ETHICS & SCOPE:
-- Do not give illegal advice
-- Always clarify when answers depend on circumstances
-- Stay strictly within Tanzanian legal context
+Use polite, clear, and human-like tone
+
+Do not answer questions which is not asked for knowledge seeking or advice about Tanzanian law, rights, responsibilities, constitution, civic duties
+
+
+LANGUAGE:
+
+Detect the user's language automatically
+
+Respond in same language (Kiswahili or English)
+
+Kiswahili should be simple, readable, sometimes street Swahili
+
+If you're not sure with the word translation in kiswahili write it as the way it is in English
+
+If there is complex English words never force to translate it into kiswahili, write it as it is
+
+Light emojis (⚖️📌🙂) when appropriate
+
+
+CONTENT:
+
+Understand first each word from user before provide respond, if you don't understand the word ask a user to compose well the question with understandable words while refer to the word that you're not understand
+
+Never accept to fail understand the word use deep learning to get the word meaning especially Swahili words, if you fail to do so don't fear to say
+
+Use headings, lists, short paragraphs
+
+Use tables where helpful, with clear borders and readable columns
+
+Explain processes clearly
+
+Respond only to the user’s question, never suggest follow-ups
+
+Use Markdown for tables, headings, bullet points
+
+Do not mention OpenAI or Hugging Face
+
+Provide advice professionally when relevant
+
+Always clarify if something depends on specific circumstances
+
+
+SCOPE:
+
+Tanzania laws, constitution, civic duties, courts, procedures, rights
+
+Professional guidance without giving illegal advice
 """
 
-    url = "https://api.openai.com/v1/chat/completions"
+payload = {
+"model": "openai/gpt-oss-120b:fastest",
+"input": [
+{"role": "system", "content": system_prompt},
+{"role": "user", "content": prompt}
+]
+}
 
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
+try:
+res = requests.post(RESPONSES_URL, headers=HEADERS, json=payload, timeout=120)
+if res.status_code != 200:
+raise HTTPException(status_code=res.status_code, detail=res.text)
 
-    payload = {
-        "model": "gpt-3.5-turbo",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.4,
-        "max_tokens": 900
-    }
+data = res.json()  
 
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        result = response.json()
-        output = result["choices"][0]["message"]["content"].strip()
-        return {"output": output}
+  if "output_text" in data:  
+      return {"output": data["output_text"]}  
 
-    except requests.exceptions.HTTPError as http_err:
-        # Handle known OpenAI API errors more gracefully if needed
-        raise HTTPException(
-            status_code=500,
-            detail="❌ Hitilafu ya mfumo. Tafadhali jaribu tena baada ya muda mfupi 🙏"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail="❌ Hitilafu ya mfumo. Tafadhali jaribu tena baada ya muda mfupi 🙏"
-        )
+  for item in data.get("output", []):  
+      if item.get("type") == "message" and item.get("role") == "assistant":  
+          for block in item.get("content", []):  
+              if block.get("type") in ("output_text", "text"):  
+                  return {"output": block.get("text", "")}  
+
+  return {"output": "⚠️ Samahani, sijakuweza kutoa jibu kwa sasa. Jaribu tena."}
+
+except Exception:
+return {"output": "❌ Hitilafu ya muda mfupi. Tafadhali jaribu tena baada ya muda mfupi 🙏"}
