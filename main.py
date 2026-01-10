@@ -13,7 +13,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Hugging Face API token
 HF_API_TOKEN = os.getenv("HF_API_TOKEN")
 if not HF_API_TOKEN:
     raise RuntimeError("HF_API_TOKEN not set in environment variables")
@@ -28,15 +27,8 @@ HEADERS = {
 ASSISTANT_NAME = "Raw Advisor"
 DEVELOPER_NAME = "Charlie Syllas"
 
-# Identity detection
 IDENTITY_PATTERN = re.compile(
-    r"(who (are|made|created|built|trained) you|where are you from|what are you)",
-    re.IGNORECASE
-)
-
-# Out-of-scope topics
-OUT_OF_SCOPE_PATTERN = re.compile(
-    r"(programming|coding|software|ai|crypto|bitcoin|health|medicine|religion|usa law|uk law)",
+    r"^(who (are|made|created|built|trained) you|where are you from|what are you)$",
     re.IGNORECASE
 )
 
@@ -47,55 +39,45 @@ class GenerateRequest(BaseModel):
 def generate(req: GenerateRequest):
     prompt = req.prompt.strip()
 
-    # Identity response
+    # First open introduction
     if IDENTITY_PATTERN.search(prompt):
         return {
             "output": (
                 "👋 **Karibu!**\n\n"
-                "Mimi ni **Raw Advisor**, mshauri wa masuala ya **sheria na Katiba ya Tanzania**, "
-                f"niliyoundwa kusaidia wananchi kuelewa haki na wajibu wao kwa lugha rahisi na inayoeleweka."
+                "Mimi ni **Raw Advisor**, mshauri wa masuala ya sheria, Katiba na wajibu wa raia wa Tanzania 🇹🇿. "
+                "Nimeundwa na **Charlie Syllas** kusaidia wananchi kuelewa haki zao, wajibu wao, "
+                "na kutoa ushauri wa kisheria kwa lugha rahisi na ya kueleweka."
             )
         }
 
-    # Out-of-scope check
-    if OUT_OF_SCOPE_PATTERN.search(prompt):
-        return {
-            "output": (
-                "⚠️ **Samahani**\n\n"
-                "Naweza kusaidia **masuala ya sheria na Katiba ya Tanzania pekee**.\n\n"
-                "Tafadhali uliza swali linalohusiana na haki, wajibu, au taratibu za kisheria hapa nchini 🇹🇿"
-            )
-        }
-
-    # SYSTEM PROMPT
     system_prompt = f"""
-You are {ASSISTANT_NAME}, a trusted Tanzanian legal advisor.
+You are {ASSISTANT_NAME}, a professional Tanzanian legal advisor.
 
-IDENTITY & TONE:
-- Polite, respectful, and human-like
-- Answer clearly and professionally
-- Use simple language with occasional light emojis (⚖️📌🙂)
+GOALS:
+- Answer all questions about Tanzanian law, rights, responsibilities, constitution, civic duties
+- Provide professional advice if needed
+- Use polite, clear, and human-like tone
 
 LANGUAGE:
-- Detect user's language automatically
-- Respond in the same language (Kiswahili or English)
-- Kiswahili should include street Swahili naturally for comprehension
-- Mix formal/legal + simple explanations
+- Detect the user's language automatically
+- Respond in same language (Kiswahili or English)
+- Kiswahili should be simple, readable, sometimes street Swahili
+- Include regional examples (Dar es Salaam, Arusha, Mwanza, Mbeya)
+- Light emojis (⚖️📌🙂) when appropriate
 
-LEGAL KNOWLEDGE:
-- Provide regional examples (Dar es Salaam, Arusha, Mwanza, Mbeya)
-- Identify legal areas (Katiba, Jinai, Ajira, Ardhi, Ndoa)
-- Mention real Katiba articles or laws carefully
-- Explain practical steps clearly
-- Never give illegal advice
+CONTENT:
+- Use headings, lists, short paragraphs
+- Use tables where helpful, with clear borders and readable columns
+- Explain processes clearly
+- Respond only to the user’s question, never suggest follow-ups
+- Use Markdown for tables, headings, bullet points
+- Do not mention OpenAI or Hugging Face
+- Provide advice professionally when relevant
+- Always clarify if something depends on specific circumstances
 
-OUTPUT:
-- Respond ONLY to the question asked
-- Do NOT suggest follow-up questions
-- Respond ONLY in Markdown
-- Use headings, lists, and short paragraphs
-- Keep tone professional and polite
-- Do NOT mention OpenAI, Hugging Face, or AI models
+SCOPE:
+- Tanzania laws, constitution, civic duties, courts, procedures, rights
+- Professional guidance without giving illegal advice
 """
 
     payload = {
@@ -113,7 +95,6 @@ OUTPUT:
 
         data = res.json()
 
-        # Handle Hugging Face outputs
         if "output_text" in data:
             return {"output": data["output_text"]}
 
@@ -123,18 +104,7 @@ OUTPUT:
                     if block.get("type") in ("output_text", "text"):
                         return {"output": block.get("text", "")}
 
-        # Fallback
-        return {
-            "output": (
-                "⚠️ **Samahani kidogo**\n\n"
-                "Sijaweza kutoa jibu kwa sasa. Tafadhali jaribu kuuliza swali lako kwa ufafanuzi zaidi 🙂"
-            )
-        }
+        return {"output": "⚠️ Samahani, sijakuweza kutoa jibu kwa sasa. Jaribu tena."}
 
     except Exception:
-        return {
-            "output": (
-                "❌ **Hitilafu ya muda mfupi**\n\n"
-                "Kuna changamoto kidogo kwa sasa. Tafadhali jaribu tena baada ya muda mfupi 🙏"
-            )
-        }
+        return {"output": "❌ Hitilafu ya muda mfupi. Tafadhali jaribu tena baada ya muda mfupi 🙏"}
