@@ -1,5 +1,3 @@
-turn this backend to use open Ai model which friendly for 0$ budgeted project
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
