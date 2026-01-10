@@ -3,8 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os, requests, re
 
-app = FastAPI()
+app = FastAPI(title="Raw Advisor Backend")
 
+# Allow all origins for simplicity (you can restrict later)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -12,10 +13,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔐 Hugging Face Token
+# Hugging Face API token from environment
 HF_API_TOKEN = os.getenv("HF_API_TOKEN")
 if not HF_API_TOKEN:
-    raise RuntimeError("HF_API_TOKEN not set")
+    raise RuntimeError("HF_API_TOKEN not set in environment variables")
 
 RESPONSES_URL = "https://router.huggingface.co/v1/responses"
 
@@ -24,19 +25,18 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# 🧠 Assistant Identity
 ASSISTANT_NAME = "Raw Advisor"
 DEVELOPER_NAME = "Charlie Syllas"
 
-# 🛡️ Identity Enforcement
+# Identity detection
 IDENTITY_PATTERN = re.compile(
     r"(who (are|made|created|built|trained) you|where are you from|what are you)",
     re.IGNORECASE
 )
 
-# 🚫 Non-legal / non-Tanzania topics
+# Out-of-scope topics
 OUT_OF_SCOPE_PATTERN = re.compile(
-    r"(programming|coding|ai|software|computer|health|medicine|religion|bitcoin|crypto|usa law|uk law)",
+    r"(programming|coding|software|ai|crypto|bitcoin|health|medicine|religion|usa law|uk law)",
     re.IGNORECASE
 )
 
@@ -47,47 +47,66 @@ class GenerateRequest(BaseModel):
 def generate(req: GenerateRequest):
     prompt = req.prompt.strip()
 
-    # 🔒 Identity response
+    # Identity response
     if IDENTITY_PATTERN.search(prompt):
         return {
             "output": (
-                f"## ⚖️ {ASSISTANT_NAME}\n"
-                f"I am **Raw Advisor**, a legal and constitutional helper focused on **Tanzania laws**, "
-                f"developed by **{DEVELOPER_NAME}**."
+                "👋 **Karibu!**\n\n"
+                "Mimi ni **Raw Advisor**, mshauri wa masuala ya **sheria na Katiba ya Tanzania**, "
+                f"niliyoundwa kusaidia wananchi kuelewa haki na wajibu wao kwa lugha rahisi na inayoeleweka."
             )
         }
 
-    # 🚫 Out-of-scope enforcement
+    # Out-of-scope check
     if OUT_OF_SCOPE_PATTERN.search(prompt):
         return {
             "output": (
-                "⚠️ **Out of Scope**\n\n"
-                "I only answer questions related to **Tanzania laws and constitutional matters**.\n\n"
-                "**Ninaweza kusaidia tu masuala ya sheria na katiba ya Tanzania.**"
+                "⚠️ **Samahani**\n\n"
+                "Naweza kusaidia **masuala ya sheria na Katiba ya Tanzania pekee**.\n\n"
+                "Tafadhali uliza swali linalohusiana na haki, wajibu, au taratibu za kisheria hapa nchini 🇹🇿"
             )
         }
 
-    # 🧠 System Prompt
+    # SYSTEM PROMPT: full upgrade with polite, Kiswahili + regional examples
     system_prompt = f"""
-You are {ASSISTANT_NAME}, a legal and civic advisory assistant.
+You are {ASSISTANT_NAME}, a trusted Tanzanian legal advisor.
 
-Purpose:
-- Help users understand **Tanzania laws and the Constitution**
-- Explain legal rights, duties, court processes, and civic matters
-- Respond in **English or Kiswahili**, matching the user's language
+IDENTITY & TONE:
+- Speak like a human legal advisor in Tanzania
+- Polite, respectful, friendly
+- Use simple, clear language; sound natural
+- Include light emojis (⚖️📌🙂) appropriately
 
-Rules:
-- Answer ONLY Tanzania-related legal and constitutional topics
-- If asked about non-Tanzania or non-legal topics → politely refuse
-- DO NOT give illegal advice
-- DO NOT claim to be a lawyer
-- Encourage consulting qualified legal professionals when necessary
+LANGUAGE:
+- Detect the user's language automatically
+- Respond in the same language (Kiswahili or English)
+- Kiswahili should include street Swahili naturally for comprehension
+- Mix formal/legal + simple explanations
+
+LEGAL KNOWLEDGE:
+- Give regional examples (Dar es Salaam, Arusha, Mwanza, Mbeya)
+- Identify legal areas (Katiba, Jinai, Ajira, Ardhi, Ndoa)
+- Mention Katiba articles or laws carefully (only real ones)
+- Explain practical steps clearly
+- Provide guidance in a human-friendly way
+- Never give illegal advice; suggest consulting a lawyer when necessary
+
+FOLLOW-UP & USER ENGAGEMENT:
+- Offer 1-3 follow-up suggestions to continue the conversation
+- Use simple phrases like:
+  "Je, ungependa kujua hatua nyingine?"
+  "Ungependa mifano zaidi?"
+  "Naweza kuelezea jinsi ya kufuata taratibu sahihi?"
+
+SCOPE:
+- Only answer Tanzania laws, constitution, civic duties, courts, procedures
+- Decline politely if outside Tanzania or legal matters
+
+OUTPUT:
 - Respond ONLY in Markdown
-- Never mention OpenAI, Hugging Face, or model names
-
-Identity Rule:
-If asked about who you are, say:
-"I am Raw Advisor, a legal helper focused on Tanzania laws, developed by Charlie Syllas."
+- Include headings, lists, and short paragraphs
+- Keep tone professional, polite, and human
+- Do NOT mention OpenAI, Hugging Face, or AI models
 """
 
     payload = {
@@ -98,16 +117,35 @@ If asked about who you are, say:
         ]
     }
 
-    res = requests.post(RESPONSES_URL, headers=HEADERS, json=payload, timeout=120)
-    if res.status_code != 200:
-        raise HTTPException(status_code=res.status_code, detail=res.text)
+    try:
+        res = requests.post(RESPONSES_URL, headers=HEADERS, json=payload, timeout=120)
+        if res.status_code != 200:
+            raise HTTPException(status_code=res.status_code, detail=res.text)
 
-    data = res.json()
+        data = res.json()
 
-    for item in data.get("output", []):
-        if item.get("type") == "message" and item.get("role") == "assistant":
-            for block in item.get("content", []):
-                if block.get("type") == "output_text":
-                    return {"output": block["text"]}
+        # Handle Hugging Face outputs
+        if "output_text" in data:
+            return {"output": data["output_text"]}
 
-    return {"output": "Hakuna jibu lililotolewa / No response generated."}
+        for item in data.get("output", []):
+            if item.get("type") == "message" and item.get("role") == "assistant":
+                for block in item.get("content", []):
+                    if block.get("type") in ("output_text", "text"):
+                        return {"output": block.get("text", "")}
+
+        # Fallback message
+        return {
+            "output": (
+                "⚠️ **Samahani kidogo**\n\n"
+                "Sijaweza kutoa jibu kwa sasa. Tafadhali jaribu kuuliza swali lako kwa ufafanuzi zaidi 🙂"
+            )
+        }
+
+    except Exception:
+        return {
+            "output": (
+                "❌ **Hitilafu ya muda mfupi**\n\n"
+                "Kuna changamoto kidogo kwa sasa. Tafadhali jaribu tena baada ya muda mfupi 🙏"
+            )
+        }
