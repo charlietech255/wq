@@ -1,11 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from openai import OpenAI
+import requests
+import os
 import re
-
-# OpenAI client (reads OPENAI_API_KEY from environment)
-client = OpenAI()
 
 app = FastAPI(title="Raw Advisor Backend")
 
@@ -24,6 +22,11 @@ IDENTITY_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# Get API key from environment (same way Render and other platforms expect)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY environment variable is not set")
+
 class GenerateRequest(BaseModel):
     prompt: str
 
@@ -31,7 +34,7 @@ class GenerateRequest(BaseModel):
 def generate(req: GenerateRequest):
     prompt = req.prompt.strip()
 
-    # Identity questions
+    # Identity questions (handled locally, no API call)
     if IDENTITY_PATTERN.search(prompt):
         return {
             "output": (
@@ -82,22 +85,37 @@ ETHICS & SCOPE:
 - Stay strictly within Tanzanian legal context
 """
 
+    url = "https://api.openai.com/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": "gpt-3.5-turbo",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.4,
+        "max_tokens": 900
+    }
+
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.4,
-            max_tokens=900
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        result = response.json()
+        output = result["choices"][0]["message"]["content"].strip()
+        return {"output": output}
+
+    except requests.exceptions.HTTPError as http_err:
+        # Handle known OpenAI API errors more gracefully if needed
+        raise HTTPException(
+            status_code=500,
+            detail="❌ Hitilafu ya mfumo. Tafadhali jaribu tena baada ya muda mfupi 🙏"
         )
-
-        return {
-            "output": response.choices[0].message.content.strip()
-        }
-
-    except Exception:
+    except Exception as e:
         raise HTTPException(
             status_code=500,
             detail="❌ Hitilafu ya mfumo. Tafadhali jaribu tena baada ya muda mfupi 🙏"
