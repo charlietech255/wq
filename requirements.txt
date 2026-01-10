@@ -3,4 +3,4 @@ uvicorn
 pandas
 requests
 pydantic
-openai
+openai>=1.0.0
