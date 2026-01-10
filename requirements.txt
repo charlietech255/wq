@@ -1,5 +1,5 @@
 fastapi
-uvicorn[standard]
-pydantic
+uvicorn
+pandas
 requests
-python-dotenv
+pydantic
