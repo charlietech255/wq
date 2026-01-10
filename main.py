@@ -1,11 +1,21 @@
+import os
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import os, requests, re
+import google.generativeai as genai
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Raw Advisor Backend")
+# 1. SETUP & CONFIGURATION
+# Set your API Key in Render Environment Variables as GEMINI_API_KEY
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Allow all origins
+if not GEMINI_API_KEY:
+    print("Warning: GEMINI_API_KEY not found. Ensure it is set in Render!")
+
+genai.configure(api_key=GEMINI_API_KEY)
+
+app = FastAPI(title="Wakili Online AI Engine")
+
+# Allow your frontend to call this API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,98 +23,55 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-HF_API_TOKEN = os.getenv("HF_API_TOKEN")
-if not HF_API_TOKEN:
-    raise RuntimeError("HF_API_TOKEN not set in environment variables")
+# 2. SYSTEM INSTRUCTIONS (The Personality)
+SYSTEM_PROMPT = """
+You are 'Wakili Online', a specialized legal advisor for Tanzania. 
+Your developer is 'Charlie Syllas', a self-taught web developer and programmer.
 
-RESPONSES_URL = "https://router.huggingface.co/v1/responses"
-
-HEADERS = {
-    "Authorization": f"Bearer {HF_API_TOKEN}",
-    "Content-Type": "application/json"
-}
-
-ASSISTANT_NAME = "Raw Advisor"
-DEVELOPER_NAME = "Charlie Syllas"
-
-IDENTITY_PATTERN = re.compile(
-    r"^(who (are|made|created|built|trained) you|where are you from|what are you)$",
-    re.IGNORECASE
-)
-
-class GenerateRequest(BaseModel):
-    prompt: str
-
-@app.post("/generate")
-def generate(req: GenerateRequest):
-    prompt = req.prompt.strip()
-
-    # First open introduction
-    if IDENTITY_PATTERN.search(prompt):
-        return {
-            "output": (
-                "👋 **Karibu!**\n\n"
-                "Mimi ni **Raw Advisor**, mshauri wa masuala ya sheria, Katiba na wajibu wa raia wa Tanzania 🇹🇿. "
-                "Nimeundwa na **Charlie Syllas** kusaidia wananchi kuelewa haki zao, wajibu wao, "
-                "na kutoa ushauri wa kisheria kwa lugha rahisi na ya kueleweka."
-            )
-        }
-
-    system_prompt = f"""
-You are {ASSISTANT_NAME}, a professional Tanzanian legal advisor.
-
-GOALS:
-- Answer all questions about Tanzanian law, rights, responsibilities, constitution, civic duties
-- Provide professional advice if needed
-- Use polite, clear, and human-like tone
-
-LANGUAGE:
-- Detect the user's language automatically
-- Respond in same language (Kiswahili or English)
-- Kiswahili should be simple, readable, sometimes street Swahili
-- Include regional examples (Dar es Salaam, Arusha, Mwanza, Mbeya)
-- Light emojis (⚖️📌🙂) when appropriate
-
-CONTENT:
-- Use headings, lists, short paragraphs
-- Use tables where helpful, with clear borders and readable columns
-- Explain processes clearly
-- Respond only to the user’s question, never suggest follow-ups
-- Use Markdown for tables, headings, bullet points
-- Do not mention OpenAI or Hugging Face
-- Provide advice professionally when relevant
-- Always clarify if something depends on specific circumstances
-
-SCOPE:
-- Tanzania laws, constitution, civic duties, courts, procedures, rights
-- Professional guidance without giving illegal advice
+CORE RULES:
+1. IDENTITY: If asked who you are or who built you, always state: "Mimi ni Wakili Online, na nilitengenezwa na Charlie Syllas, ambaye ni self-taught web developer na programmer." 
+   NEVER mention Gemini, Google, or being an AI model.
+2. EXPERTISE: Answer questions about Tanzania Laws, Human Rights, Duties of a citizen, and Constitution issues ONLY.
+3. LANGUAGE & STYLE: 
+   - Identify the user's language (English or Swahili) and reply in the same language.
+   - Use polite, classical advisor tones, but keep it simple.
+   - For Swahili: Use "Kiswahili cha mtaani" (vibe ya mshikaji, mwanachuo, au raia wa kawaida). Use words like 'mwanangu', 'aisee', 'daah', 'vipi', 'mchongo'. It must feel like a real person writing, not a robot.
+4. ENGAGEMENT: Use emojis to make the conversation impressive and friendly ⚖️🇹🇿.
+5. CLARITY: Even for complex legal issues, explain them so a local person in the street can understand easily.
 """
 
-    payload = {
-        "model": "openai/gpt-oss-120b:fastest",
-        "input": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ]
-    }
+# Initialize the Model
+model = genai.GenerativeModel(
+    model_name="gemini-2.0-flash",
+    system_instruction=SYSTEM_PROMPT
+)
 
+# 3. API DATA MODELS
+class ChatInput(BaseModel):
+    message: str
+
+# 4. ENDPOINTS
+@app.get("/")
+def health_check():
+    return {"status": "Wakili Online is active", "developer": "Charlie Syllas"}
+
+@app.post("/chat")
+async def chat_endpoint(input_data: ChatInput):
+    if not input_data.message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    
     try:
-        res = requests.post(RESPONSES_URL, headers=HEADERS, json=payload, timeout=120)
-        if res.status_code != 200:
-            raise HTTPException(status_code=res.status_code, detail=res.text)
+        # Generate response from Gemini
+        response = model.generate_content(input_data.message)
+        
+        return {
+            "reply": response.text,
+            "status": "success"
+        }
+    except Exception as e:
+        return {"reply": "Aisee samahani mwanangu, kuna itilafu kidogo kwenye mtambo. Jaribu tena baadae! 🛠️", "error": str(e)}
 
-        data = res.json()
-
-        if "output_text" in data:
-            return {"output": data["output_text"]}
-
-        for item in data.get("output", []):
-            if item.get("type") == "message" and item.get("role") == "assistant":
-                for block in item.get("content", []):
-                    if block.get("type") in ("output_text", "text"):
-                        return {"output": block.get("text", "")}
-
-        return {"output": "⚠️ Samahani, sijakuweza kutoa jibu kwa sasa. Jaribu tena."}
-
-    except Exception:
-        return {"output": "❌ Hitilafu ya muda mfupi. Tafadhali jaribu tena baada ya muda mfupi 🙏"}
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
