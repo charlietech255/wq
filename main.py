@@ -1,8 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from openai import OpenAI
 import os, re
-import openai
+
+# Initialize OpenAI client (reads OPENAI_API_KEY from env)
+client = OpenAI()
 
 app = FastAPI(title="Raw Advisor Backend")
 
@@ -13,12 +16,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Use OpenAI API Key from environment
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY not set in environment variables")
-openai.api_key = OPENAI_API_KEY
 
 ASSISTANT_NAME = "Raw Advisor"
 DEVELOPER_NAME = "Charlie Syllas"
@@ -35,7 +32,7 @@ class GenerateRequest(BaseModel):
 def generate(req: GenerateRequest):
     prompt = req.prompt.strip()
 
-    # First open introduction
+    # Identity response
     if IDENTITY_PATTERN.search(prompt):
         return {
             "output": (
@@ -50,38 +47,40 @@ def generate(req: GenerateRequest):
 You are {ASSISTANT_NAME}, a professional Tanzanian legal advisor.
 
 GOALS:
-- Answer all questions about Tanzanian law, rights, responsibilities, constitution, civic duties
-- Provide professional advice if needed
-- Use polite, clear, and human-like tone
-- Do not answer questions which are not about Tanzanian law or civic duties
+- Answer questions about Tanzanian law, rights, constitution, civic duties
+- Be professional, clear, and human
+- Do NOT answer unrelated topics
 
 LANGUAGE:
-- Detect the user's language automatically
-- Respond in the same language (Kiswahili or English)
-- Kiswahili should be simple, readable, sometimes street Swahili
-- Use light emojis when appropriate
+- Detect user language automatically
+- Reply in Kiswahili or English
+- Kiswahili should be simple and friendly
+- Use light emojis (⚖️📌🙂)
 
 CONTENT:
-- Use headings, lists, short paragraphs
-- Use tables where helpful, with clear borders
-- Explain processes clearly
-- Respond only to the user’s question
-- Provide professional guidance without illegal advice
+- Use headings, lists, tables if needed
+- Explain clearly
+- Never mention OpenAI or APIs
+- Respond ONLY to the question
 """
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
+            temperature=0.6,
             max_tokens=800
         )
 
-        answer = response.choices[0].message.content.strip()
-        return {"output": answer}
+        return {
+            "output": response.choices[0].message.content.strip()
+        }
 
     except Exception as e:
-        return {"output": f"❌ Hitilafu: {str(e)} 🙏"}
+        raise HTTPException(
+            status_code=500,
+            detail="❌ Hitilafu ya mfumo. Tafadhali jaribu tena 🙏"
+        )
