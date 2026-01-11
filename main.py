@@ -5,12 +5,13 @@ from pydantic import BaseModel
 import google.generativeai as genai
 from fastapi.middleware.cors import CORSMiddleware
 
-# 1. API CONFIGURATION
+# 1. SETUP & CONFIGURATION
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
 app = FastAPI()
 
+# Ruhusu mawasiliano na frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,32 +19,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. THE ULTIMATE SYSTEM PROMPT
+# 2. MFUMO WA MAELEKEZO (Personality & Legal Training)
 SYSTEM_PROMPT = """
-Identity: You are 'Wakili Online'. You only reveal your developer, 'Charlie Syllas', if specifically asked.
-Role: Professional Tanzanian Legal Advisor.
-Tone: Use 'Official Swahili' (Sanifu) for legal explanations and 'Street Swahili' (Mtaani) for greetings/closings.
+UTAMBULISHO: 
+- Jina lako ni 'Wakili Online'. 
+- Usitaje jina la developer (Charlie Syllas) isipokuwa ukiulizwa "Nani kakuunda?".
+- Usiseme wewe ni AI au Gemini. Sema wewe ni Wakili Online.
 
-CORE INSTRUCTIONS:
-1. CITATIONS: You MUST cite specific laws: The Constitution of JMT (1977) [Katiba] and Acts of Parliament [Sheria za Bunge]. 
-   Example: "Kwa mujibu wa Ibara ya 13 ya Katiba..."
-2. FORMATTING: Use Markdown TABLES to explain complex rights/duties comparisons.
-3. CLEANLINESS: NEVER use '**' for bold. Write for a clean web interface.
-4. VIBE: Be the 'Mshauri wa Kweli'. Use polite but relatable language (e.g., 'mwanangu', 'fresh', 'tuko pamoja').
+MTINDO WA LUGHA (Lugha Mseto):
+- Tumia 'Kiswahili cha Mtaani' (mfano: mwanangu, fresh, aisee, mchongo, tuko pamoja) unapoanza na kumaliza maongezi ili kuleta ukaribu.
+- Unapofafanua sheria, tumia 'Kiswahili Sanifu na cha Kisheria' (Official Legal Swahili) ili uonekane mtaalamu.
+
+SHERIA NA KATIBA:
+- Kila jibu la kisheria LAZIMA liambatane na marejeo (Reference). Taja Ibara za Katiba ya JMT (1977) au Vifungu (Sections) vya Sheria husika (Acts).
+- Tumia TABO (Tables) pale unapohitaji kulinganisha vitu (mfano: Haki vs Wajibu).
+
+USAFI WA MAANDISHI:
+- USITUMIE alama za kishamba kama '**' kwa ajili ya Bold. Badala yake, andika kwa mtindo ambao ni safi (Smart & Clean). Mfumo wangu wa kodi utabadilisha Bold zote kuwa mtindo wa kisasa wa HTML.
 """
 
-# 3. INITIALIZE GEMINI 3 FLASH PREVIEW
-# Gemini 3 models use "Thinking" to provide more accurate legal reasoning.
+# 3. INITIALIZE GEMINI 3 FLASH
+# Hii model ndio injini ya Wakili Online kwa mwaka 2026.
 model = genai.GenerativeModel(
     model_name="gemini-3-flash-preview",
     system_instruction=SYSTEM_PROMPT
 )
 
-# 4. SMART FORMATTING LAYER
-def clean_and_style(text):
-    # Convert AI-style **bolding** to standard HTML <b> tags
+# 4. SMART FORMATTING (Kusafisha Maandishi)
+def clean_legal_text(text):
+    # Inabadilisha **neno** kuwa <b>neno</b> kwa ajili ya muonekano nadhifu wa web
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    # Convert list markers to professional bullet points
+    # Inabadilisha alama za list (*) kuwa dots za kiprofeshinali (•)
     text = re.sub(r'^\*\s', '• ', text, flags=re.MULTILINE)
     return text
 
@@ -53,30 +59,27 @@ class ChatInput(BaseModel):
 @app.post("/chat")
 async def chat_endpoint(input_data: ChatInput):
     try:
-        # Configuration for Gemini 3 'Thinking' capability
-        # 'low' thinking level is best for fast, cost-effective chat.
-        generation_config = {
-            "thinking_level": "low", 
-            "temperature": 0.7
-        }
+        # Gemini 3 ina 'thinking_level' kuongeza umakini
+        # Tunatumia 'low' ili kupata majibu haraka na kwa gharama nafuu (Free tier)
+        config = {"thinking_level": "low"}
         
         response = model.generate_content(
             input_data.message,
-            generation_config=generation_config
+            generation_config=config
         )
         
-        formatted_reply = clean_and_style(response.text)
+        # Safisha jibu kabla ya kulituma kwa mtumiaji
+        clean_reply = clean_legal_text(response.text)
         
         return {
-            "reply": formatted_reply,
+            "reply": clean_reply,
             "status": "success"
         }
     except Exception as e:
-        error_msg = str(e)
-        # Handle the 429 Quota error gracefully
-        if "429" in error_msg:
-            return {"reply": "Aisee mwanangu, kwa sasa nimechoka kidogo (Daily Limit). Nipumzishe kidogo kisha nitumie ujumbe tena! 🛠️"}
-        return {"reply": "Samahani mwanangu, mitambo imepata itilafu. Charlie anafanyia kazi! 👊"}
+        # Kama kuna tatizo la Quota (429) au lingine
+        if "429" in str(e):
+            return {"reply": "Aisee mwanangu, kwa sasa nimechoka kidogo (Quota Limit). Nipumzishe sekunde kadhaa kisha unitumie ujumbe tena! 🛠️"}
+        return {"reply": "Dah, samahani mwanangu. Kuna hitilafu kidogo, Charlie anashughulikia sasa hivi! 👊"}
 
 if __name__ == "__main__":
     import uvicorn
