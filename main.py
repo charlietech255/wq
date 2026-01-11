@@ -1,17 +1,21 @@
 import os
-import re
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import google.generativeai as genai
 from fastapi.middleware.cors import CORSMiddleware
 
-# 1. SETUP & CONFIGURATION
+# 1. API CONFIGURATION
+# Set your API Key in Render Environment Variables as GEMINI_API_KEY
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    print("CRITICAL: GEMINI_API_KEY missing! Set it in Render Dashboard.")
+
 genai.configure(api_key=GEMINI_API_KEY)
 
-app = FastAPI()
+app = FastAPI(title="Wakili Online Engine")
 
-# Ruhusu mawasiliano na frontend
+# Enable CORS so your website can talk to this engine
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,67 +23,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. MFUMO WA MAELEKEZO (Personality & Legal Training)
+# 2. SYSTEM INSTRUCTIONS (Personality & Knowledge)
+# Updated to use Gemini 3's improved reasoning
 SYSTEM_PROMPT = """
-UTAMBULISHO: 
-- Jina lako ni 'Wakili Online'. 
-- Usitaje jina la developer (Charlie Syllas) isipokuwa ukiulizwa "Nani kakuunda?".
-- Usiseme wewe ni AI au Gemini. Sema wewe ni Wakili Online.
+Jina lako ni 'Wakili Online'. Msanidi wako ni 'Charlie Syllas', self-taught programmer.
 
-MTINDO WA LUGHA (Lugha Mseto):
-- Tumia 'Kiswahili cha Mtaani' (mfano: mwanangu, fresh, aisee, mchongo, tuko pamoja) unapoanza na kumaliza maongezi ili kuleta ukaribu.
-- Unapofafanua sheria, tumia 'Kiswahili Sanifu na cha Kisheria' (Official Legal Swahili) ili uonekane mtaalamu.
-
-SHERIA NA KATIBA:
-- Kila jibu la kisheria LAZIMA liambatane na marejeo (Reference). Taja Ibara za Katiba ya JMT (1977) au Vifungu (Sections) vya Sheria husika (Acts).
-- Tumia TABO (Tables) pale unapohitaji kulinganisha vitu (mfano: Haki vs Wajibu).
-
-USAFI WA MAANDISHI:
-- USITUMIE alama za kishamba kama '**' kwa ajili ya Bold. Badala yake, andika kwa mtindo ambao ni safi (Smart & Clean). Mfumo wangu wa kodi utabadilisha Bold zote kuwa mtindo wa kisasa wa HTML.
+MAJUKUMU YAKO:
+- Wewe ni mtaalamu wa Sheria za Tanzania, Katiba, Haki za binadamu na Wajibu wa raia.
+- Jibu kwa upole, heshima, na lugha ya kishauri (professional advisor).
+- Tumia 'Kiswahili cha mtaani' (mfano: mwanangu, aisee, vipi, mchongo, fresh) ili kuonekana kama binadamu wa kawaida wa mtaani Tanzania 🇹🇿.
+- Tambua lugha ya mtumiaji (English au Swahili) na ujibu kwa lugha hiyo hiyo.
+- Tumia emoji kuleta mzuka ⚖️.
+- Ukoulizwa utambulisho, sema wewe ni Wakili Online na developer ni Charlie Syllas.
+- USITAJE kuwa wewe ni AI au unatumia model ya Gemini.
 """
 
-# 3. INITIALIZE GEMINI 3 FLASH
-# Hii model ndio injini ya Wakili Online kwa mwaka 2026.
+# 3. INITIALIZE MODEL (Updated to Gemini 3 Flash)
 model = genai.GenerativeModel(
-    model_name="gemini-3-flash-preview",
+    model_name="gemini-3-flash-preview", # Best free-tier model for 2026
     system_instruction=SYSTEM_PROMPT
 )
-
-# 4. SMART FORMATTING (Kusafisha Maandishi)
-def clean_legal_text(text):
-    # Inabadilisha **neno** kuwa <b>neno</b> kwa ajili ya muonekano nadhifu wa web
-    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    # Inabadilisha alama za list (*) kuwa dots za kiprofeshinali (•)
-    text = re.sub(r'^\*\s', '• ', text, flags=re.MULTILINE)
-    return text
 
 class ChatInput(BaseModel):
     message: str
 
+@app.get("/")
+def home():
+    return {"message": "Wakili Online is Live! ⚖️", "dev": "Charlie Syllas"}
+
 @app.post("/chat")
-async def chat_endpoint(input_data: ChatInput):
+async def chat(input_data: ChatInput):
+    if not input_data.message:
+        raise HTTPException(status_code=400, detail="Empty message")
+    
     try:
-        # Gemini 3 ina 'thinking_level' kuongeza umakini
-        # Tunatumia 'low' ili kupata majibu haraka na kwa gharama nafuu (Free tier)
-        config = {"thinking_level": "low"}
-        
-        response = model.generate_content(
-            input_data.message,
-            generation_config=config
-        )
-        
-        # Safisha jibu kabla ya kulituma kwa mtumiaji
-        clean_reply = clean_legal_text(response.text)
+        # Generate content with high speed
+        response = model.generate_content(input_data.message)
         
         return {
-            "reply": clean_reply,
+            "reply": response.text,
             "status": "success"
         }
     except Exception as e:
-        # Kama kuna tatizo la Quota (429) au lingine
-        if "429" in str(e):
-            return {"reply": "Aisee mwanangu, kwa sasa nimechoka kidogo (Quota Limit). Nipumzishe sekunde kadhaa kisha unitumie ujumbe tena! 🛠️"}
-        return {"reply": "Dah, samahani mwanangu. Kuna hitilafu kidogo, Charlie anashughulikia sasa hivi! 👊"}
+        # Error handling for quota or technical issues
+        error_msg = str(e)
+        if "429" in error_msg:
+            return {"reply": "Aisee mwanangu, kwa sasa nimechoka kidogo (Quota Limit). Nipumzishe sekunde chache kisha nitumie ujumbe tena! 🛠️"}
+        return {"reply": "Samahani mwanangu, kuna itilafu kidogo. Jaribu tena baadae kidogo! 👊", "error": error_msg}
 
 if __name__ == "__main__":
     import uvicorn
